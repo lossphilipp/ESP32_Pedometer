@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -20,27 +21,55 @@
 #define I2C_MASTER_BITRATE CONFIG_I2C_MASTER_BITRATE
 
 // https://invensense.tdk.com/products/motion-tracking/6-axis/icm-42688-p/
-// ToDo: Adjust to correct values
-#define ICM42688P_I2C_ADDRESS 0x00
-#define ICM42688P_CMD_WAKEUP 0x0000
-#define ICM42688P_CMD_SLEEP 0x0000
+#define ICM42688P_I2C_ADDRESS 0x80      // ToDo: Correct?
+
+#define ICM42688P_W_CONFIG_RESET 0x1101
+#define ICM42688P_W_CONFIG_ODR 0x5049
+#define ICM42688P_W_CONFIG_MODE 0x4E02
+#define ICM42688P_W_CONFIG_APEX 0x5602
+#define ICM42688P_W_CONFIG_DMP 0x4B20
+#define ICM42688P_W_CONFIG_DMP_INIT 0x4B40
+#define ICM42688P_W_CONFIG_BANK 0x4E20
+
+#define ICM42688P_W_PEDOMETER_ENABLE 0x5622
+#define ICM42688P_W_PEDOMETER_DISABLE 0x5602
+#define ICM42688P_R_PEDOMETER_READSTEPS 0x31
+
+#define ICM42688P_R_ACCELEROMETER_READX 0x1F
+#define ICM42688P_R_ACCELEROMETER_READY 0x21
+#define ICM42688P_R_ACCELEROMETER_READZ 0x23
 
 #define OUTPUT_TYPE_READ 0
 #define OUTPUT_TYPE_CALCULATED 1
 #define OUTPUT_TYPE_COMPARISON 2
 
-typedef struct {
-    uint8_t steps;
-    uint8_t movement;
-} measurement_t; 
+#define STEP_VECTOR_MAGNITUDE_THRESHOLD 1000
+#define STEP_SAMPLE_ERROR_TRESHOLD 5      // Minimum number of consecutive measurements indicating a direction change
+#define STEP_CALCULATION_BUFFER_SIZE 25*2 // 25 Hz * 2 seconds
 
-uint8_t output_type = OUTPUT_TYPE_COMPARISON; // magic number
+typedef struct {
+    uint16_t x;
+    uint16_t y;
+    uint16_t z;
+} movement_t;
+typedef struct {
+    uint16_t steps;
+    movement_t movement;
+} measurement_t;
+
+
+uint16_t calculated_steps = 0;
+uint8_t output_type = OUTPUT_TYPE_COMPARISON;
+bool measurement_running = false;
+
 measurement_t current_measurement = {
     .steps = 0,
-    .movement = 0
+    .movement.x = 0,
+    .movement.y = 0,
+    .movement.z = 0
 };
-uint16_t calculated_steps = 0;
-bool measurement_running = false;
+movement_t calculation_buffer[STEP_CALCULATION_BUFFER_SIZE]; // Ringbuffer
+uint8_t calculation_buffer_index = 0;
 
 #ifdef CONFIG_BLINK_LED_STRIP
 
@@ -100,8 +129,7 @@ static void configure_led(void)
 
 i2c_port_t i2c_port = I2C_NUM_0;
 
-void initI2C(i2c_port_t i2c_num)
-{
+void initI2C(i2c_port_t i2c_num) {
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
         .sda_io_num = I2C_MASTER_SDA_IO,
@@ -117,75 +145,88 @@ void initI2C(i2c_port_t i2c_num)
     ESP_LOGD("I2C", "I2C connection initialized"); 
 }
 
-void configure_accelerometer()
-{
+void ICM42688P_writeRegister(uint16_t command) {
+    uint8_t writeCmd[2] = {command >> 8, command & 0xFF};
+    //ESP_ERROR_CHECK(i2c_master_write_to_device(i2c_port, ICM42688P_I2C_ADDRESS, writeCmd, 2, pdMS_TO_TICKS(50)));
+    esp_err_t err = i2c_master_write_to_device(i2c_port, ICM42688P_I2C_ADDRESS, writeCmd, 2, pdMS_TO_TICKS(50));
+    if (err != ESP_OK) {
+        ESP_LOGE("I2C", "Failed to write to register: %s", esp_err_to_name(err));
+    }
+}
+
+void ICM42688P_readRegister(uint8_t readBuffer[6]) {
+    //ESP_ERROR_CHECK(i2c_master_read_from_device(i2c_port, ICM42688P_I2C_ADDRESS, readBuffer, 6, pdMS_TO_TICKS(50)));
+    esp_err_t err = i2c_master_read_from_device(i2c_port, ICM42688P_I2C_ADDRESS, readBuffer, 6, pdMS_TO_TICKS(50));
+    if (err != ESP_OK) {
+        ESP_LOGE("I2C", "Failed to read from register: %s", esp_err_to_name(err));
+    }
+}
+
+void ICM42688P_reset() {
+    ICM42688P_writeRegister(ICM42688P_W_CONFIG_RESET);
+    ICM42688P_writeRegister(ICM42688P_W_CONFIG_ODR);
+    ICM42688P_writeRegister(ICM42688P_W_CONFIG_MODE);
+    ICM42688P_writeRegister(ICM42688P_W_CONFIG_APEX);
+    ICM42688P_writeRegister(ICM42688P_W_CONFIG_DMP);
+    vTaskDelay(1 / portTICK_PERIOD_MS); // According to datasheet
+    ICM42688P_writeRegister(ICM42688P_W_CONFIG_DMP_INIT);
+    // ICM42688P_writeRegister(ICM42688P_W_CONFIG_BANK); // Would create interrupt on step
+}
+
+void configure_accelerometer() {
     initI2C(i2c_port);
+    ICM42688P_reset();
 
     ESP_LOGD("SENSOR", "Accelerometer configured"); 
 }
 
-void ICM42688P_writeRegister(uint16_t command)
-{
-    uint8_t writeCmd[2] = {command >> 8, command & 0xFF};
-    //ESP_ERROR_CHECK(i2c_master_write_to_device(i2c_port, ICM42688P_I2C_ADDRESS, writeCmd, 2, pdMS_TO_TICKS(50)));
-    i2c_master_write_to_device(i2c_port, ICM42688P_I2C_ADDRESS, writeCmd, 2, pdMS_TO_TICKS(50));
-}
-
-void ICM42688P_readRegister(uint8_t readBuffer[6])
-{
-    //ESP_ERROR_CHECK(i2c_master_read_from_device(i2c_port, ICM42688P_I2C_ADDRESS, readBuffer, 6, pdMS_TO_TICKS(50)));
-    i2c_master_read_from_device(i2c_port, ICM42688P_I2C_ADDRESS, readBuffer, 6, pdMS_TO_TICKS(50));
-}
-
-uint8_t ICM42688P_CalculateChecksum(uint16_t readValue)
-{
-    // ToDo: Implement checksum calculation
-    return 0;
-}
-
-uint8_t ICM42688P_read_steps(){
+uint16_t ICM42688P_read_steps() {
     // ToDo: Implement reading step register
     return 0;
 }
 
-uint8_t ICM42688P_read_movement(){
+uint16_t ICM42688P_read_movementX() {
     // ToDo: Implement reading movement register
     return 0;
 }
 
-uint8_t ICM42688P_start_measurement(){
-    // ToDo: Implement start measurement
+uint16_t ICM42688P_read_movementY() {
+    // ToDo: Implement reading movement register
     return 0;
 }
 
-uint8_t ICM42688P_stop_measurement(){
-    // ToDo: Implement start measurement
+uint16_t ICM42688P_read_movementZ() {
+    // ToDo: Implement reading movement register
     return 0;
 }
 
-uint8_t ICM42688P_reset_steps(){
-    // ToDo: Implement reset step register
-    return 0;
+void ICM42688P_read_movement(measurement_t *measurement) {
+    measurement->movement.x = ICM42688P_read_movementX();
+    measurement->movement.y = ICM42688P_read_movementY();
+    measurement->movement.z = ICM42688P_read_movementZ();
 }
 
-measurement_t ICM42688P_read_all()
-{
-    uint8_t steps = ICM42688P_read_steps();
-    uint8_t movement = ICM42688P_read_movement();
-
-    measurement_t measurement = {
-        .steps = steps,
-        .movement = movement
-    };
+measurement_t ICM42688P_read_all() {
+    measurement_t measurement;
+    
+    measurement.steps = ICM42688P_read_steps();
+    ICM42688P_read_movement(&measurement);
 
     return measurement;
+}
+
+void ICM42688P_start_measurement() {
+    ICM42688P_writeRegister(ICM42688P_W_PEDOMETER_ENABLE);
+}
+
+void ICM42688P_stop_measurement() {
+    ICM42688P_writeRegister(ICM42688P_W_PEDOMETER_DISABLE);
 }
 #endif
 
 #if defined(BUTTON_GPIO_LEFT) || defined(BUTTON_GPIO_RIGHT)
 
-void switch_mode()
-{
+void switch_mode() {
     output_type = (output_type + 1) % 3;
     ESP_LOGI("CONFIGURATION", "Switching mode to %d", output_type);
 }
@@ -208,8 +249,7 @@ static void IRAM_ATTR gpio_isr_handler(void* arg) {
     }
 }
 
-void configure_buttons()
-{
+void configure_buttons() {
     gpio_config_t gpioConfigIn = {
         .pin_bit_mask = (1 << BUTTON_GPIO_LEFT) | (1 << BUTTON_GPIO_RIGHT),
         .mode = GPIO_MODE_INPUT,
@@ -230,42 +270,91 @@ void configure_buttons()
 
 // ######################### Program #########################
 
-void read_accelerometer_data()
-{
-    current_measurement = ICM42688P_read_all();
+bool is_vector_above_threshold(movement_t movement) {
+    float_t magnitude = sqrt(movement.x * movement.x + movement.y * movement.y + movement.z * movement.z);
+    return magnitude > STEP_VECTOR_MAGNITUDE_THRESHOLD;
 }
 
-void reset_accelerometer_steps()
-{
-    ICM42688P_reset_steps();
+int32_t calculate_dot_product(movement_t movement1, movement_t movement2) {
+    return movement1.x * movement2.x + movement1.y * movement2.y + movement1.z * movement2.z;
+}
+
+bool is_vector_direction_same(movement_t movement1, movement_t movement2) {
+    return calculate_dot_product(movement1, movement2) > 0.5; // 1 = same direction, 0 = orthogonal, -1 = opposite direction
+}
+
+bool is_vector_direction_opposite(movement_t movement1, movement_t movement2) {
+    return calculate_dot_product(movement1, movement2) < -0.5; // 1 = same direction, 0 = orthogonal, -1 = opposite direction
+}
+
+// ToDo: Review logic and refactor (method way to big)
+bool detect_step(movement_t current_movement) {
+    if (!is_vector_above_threshold(current_movement)) {
+        return false;
+    }
+
+    // Check the last measurements for the same direction
+    int8_t same_direction_count = 0;
+    for (int8_t i = 0; i < STEP_SAMPLE_ERROR_TRESHOLD; i++) {
+        int8_t index = (calculation_buffer_index - 1 - i + STEP_CALCULATION_BUFFER_SIZE) % STEP_CALCULATION_BUFFER_SIZE;
+        movement_t previous_movement = calculation_buffer[index];
+
+        if (is_vector_direction_same(current_movement, previous_movement)) {
+            same_direction_count++;
+        } else {
+            same_direction_count = 0;
+            break;
+        }
+    }
+    if (same_direction_count < STEP_SAMPLE_ERROR_TRESHOLD) {
+        return false;
+    }
+
+    // Check the previous measurements for the opposite direction
+    int8_t opposite_direction_count = 0;
+    for (int8_t i = STEP_SAMPLE_ERROR_TRESHOLD; i < 2 * STEP_SAMPLE_ERROR_TRESHOLD; i++) {
+        int8_t index = (calculation_buffer_index - 1 - i + STEP_CALCULATION_BUFFER_SIZE) % STEP_CALCULATION_BUFFER_SIZE;
+        movement_t previous_movement = calculation_buffer[index];
+
+        if (is_vector_direction_opposite(current_movement, previous_movement)) {
+            opposite_direction_count++;
+        } else {
+            opposite_direction_count = 0;
+            break;
+        }
+    }
+
+    return opposite_direction_count >= STEP_SAMPLE_ERROR_TRESHOLD;
 }
 
 void calc_steps_from_movement() {
-    // ToDo: Implement calculation of steps. We most likely need to save multiple measurements and calculate the difference
-    calculated_steps = 0;
+    movement_t current_movement = current_measurement.movement;
+
+    if (detect_step(current_movement)) {
+        calculated_steps++;
+    }
+
+    calculation_buffer[calculation_buffer_index] = current_movement;
+    calculation_buffer_index = (calculation_buffer_index + 1) % STEP_CALCULATION_BUFFER_SIZE;
+}
+
+void read_accelerometer_data() {
+    current_measurement = ICM42688P_read_all();
+    calc_steps_from_movement();
+}
+
+void reset_accelerometer_steps() {
+    ICM42688P_reset();
 }
 
 uint8_t get_pixel_index(uint8_t row, uint8_t col) {
     return row * 5 + col;
 }
 
-void calculate_binary(float number, uint8_t binary_array[10]) {
-    int integer_part = (int)number;
-    float fractional_part = number - integer_part;
-
-    for (int8_t i = 4; i >= 0; i--) {
-        binary_array[i] = integer_part % 2;
-        integer_part /= 2;
-    }
-
-    for (int8_t i = 5; i < 10; i++) {
-        fractional_part *= 2;
-        if (fractional_part >= 1.0) {
-            binary_array[i] = 1;
-            fractional_part -= 1.0;
-        } else {
-            binary_array[i] = 0;
-        }
+void calculate_binary(uint16_t number, uint8_t binary_array[10]) {
+    for (int8_t i = 9; i >= 0; i--) {
+        binary_array[i] = number % 2;
+        number /= 2;
     }
 }
 
@@ -286,14 +375,12 @@ void draw_binary(uint8_t binary_array[10], int rowLower, int rowUpper) {
     }
 }
 
-void draw_data()
-{
+void draw_data() {
     uint8_t steps_read_binary[10];
     uint8_t steps_calculated_binary[10];
 
     if (output_type != OUTPUT_TYPE_READ) {
-        calc_steps_from_movement();
-        calculate_binary(current_measurement.movement, steps_calculated_binary);
+        calculate_binary(calculated_steps, steps_calculated_binary);
     }
     if (output_type != OUTPUT_TYPE_CALCULATED){
         calculate_binary(current_measurement.steps, steps_read_binary);
@@ -302,9 +389,9 @@ void draw_data()
     led_strip_clear(led_strip);
 
     if (output_type == OUTPUT_TYPE_READ) {
-        draw_binary(steps_calculated_binary, 0, 4);
+        draw_binary(steps_calculated_binary, 0, 1);
     } else if (output_type == OUTPUT_TYPE_CALCULATED) {
-        draw_binary(steps_read_binary, 0, 4);
+        draw_binary(steps_read_binary, 3, 4);
     } else if (output_type == OUTPUT_TYPE_COMPARISON) {
         draw_binary(steps_calculated_binary, 0, 1);
         draw_binary(steps_read_binary, 3, 4);
@@ -315,20 +402,25 @@ void draw_data()
     led_strip_refresh(led_strip);
 }
 
-void reset_steps()
-{
+void reset_steps() {
     // ToDo: Call this when both buttons are pressed
     calculated_steps = 0;
     reset_accelerometer_steps();
 }
 
-void app_main(void)
-{
+void configure_system() {
     configure_led();
     configure_buttons();
     configure_accelerometer();
 
+    // Init time according to datasheet
+    vTaskDelay(50 / portTICK_PERIOD_MS);
+
     ESP_LOGI("CONFIGURATION", "Everything configured, program start...");
+}
+
+void app_main(void) {
+    configure_system();
 
     while (measurement_running)
     {

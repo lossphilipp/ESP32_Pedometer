@@ -39,6 +39,8 @@ measurement_t current_measurement = {
     .steps = 0,
     .movement = 0
 };
+uint16_t calculated_steps = 0;
+bool measurement_running = false;
 
 #ifdef CONFIG_BLINK_LED_STRIP
 
@@ -122,39 +124,54 @@ void configure_accelerometer()
     ESP_LOGD("SENSOR", "Accelerometer configured"); 
 }
 
-void SHTC3_writeRegister(uint16_t command)
+void ICM42688P_writeRegister(uint16_t command)
 {
     uint8_t writeCmd[2] = {command >> 8, command & 0xFF};
     //ESP_ERROR_CHECK(i2c_master_write_to_device(i2c_port, ICM42688P_I2C_ADDRESS, writeCmd, 2, pdMS_TO_TICKS(50)));
     i2c_master_write_to_device(i2c_port, ICM42688P_I2C_ADDRESS, writeCmd, 2, pdMS_TO_TICKS(50));
 }
 
-void SHTC3_readRegister(uint8_t readBuffer[6])
+void ICM42688P_readRegister(uint8_t readBuffer[6])
 {
     //ESP_ERROR_CHECK(i2c_master_read_from_device(i2c_port, ICM42688P_I2C_ADDRESS, readBuffer, 6, pdMS_TO_TICKS(50)));
     i2c_master_read_from_device(i2c_port, ICM42688P_I2C_ADDRESS, readBuffer, 6, pdMS_TO_TICKS(50));
 }
 
-uint8_t SHTC3_CalculateChecksum(uint16_t readValue)
+uint8_t ICM42688P_CalculateChecksum(uint16_t readValue)
 {
     // ToDo: Implement checksum calculation
     return 0;
 }
 
-uint8_t read_accelerometer_steps(){
+uint8_t ICM42688P_read_steps(){
     // ToDo: Implement reading step register
     return 0;
 }
 
-uint8_t read_accelerometer_movement(){
+uint8_t ICM42688P_read_movement(){
     // ToDo: Implement reading movement register
     return 0;
 }
 
-measurement_t read_accelerometer()
+uint8_t ICM42688P_start_measurement(){
+    // ToDo: Implement start measurement
+    return 0;
+}
+
+uint8_t ICM42688P_stop_measurement(){
+    // ToDo: Implement start measurement
+    return 0;
+}
+
+uint8_t ICM42688P_reset_steps(){
+    // ToDo: Implement reset step register
+    return 0;
+}
+
+measurement_t ICM42688P_read_all()
 {
-    uint8_t steps = read_accelerometer_steps();
-    uint8_t movement = read_accelerometer_movement();
+    uint8_t steps = ICM42688P_read_steps();
+    uint8_t movement = ICM42688P_read_movement();
 
     measurement_t measurement = {
         .steps = steps,
@@ -173,12 +190,21 @@ void switch_mode()
     ESP_LOGI("CONFIGURATION", "Switching mode to %d", output_type);
 }
 
+void toggle_measurement() {
+    if (measurement_running) {
+        ICM42688P_stop_measurement();
+    } else {
+        ICM42688P_start_measurement();
+    }
+    measurement_running = !measurement_running;
+}
+
 static void IRAM_ATTR gpio_isr_handler(void* arg) {
     uint32_t gpio_num = (uint32_t) arg;
     if (gpio_num == BUTTON_GPIO_LEFT) {
         switch_mode();
     } else if (gpio_num == BUTTON_GPIO_RIGHT) {
-        // ToDo: Implement start/stop functionality
+        toggle_measurement();
     }
 }
 
@@ -204,9 +230,19 @@ void configure_buttons()
 
 // ######################### Program #########################
 
-void read_sensordata()
+void read_accelerometer_data()
 {
-    current_measurement = read_accelerometer();
+    current_measurement = ICM42688P_read_all();
+}
+
+void reset_accelerometer_steps()
+{
+    ICM42688P_reset_steps();
+}
+
+void calc_steps_from_movement() {
+    // ToDo: Implement calculation of steps. We most likely need to save multiple measurements and calculate the difference
+    calculated_steps = 0;
 }
 
 uint8_t get_pixel_index(uint8_t row, uint8_t col) {
@@ -233,16 +269,58 @@ void calculate_binary(float number, uint8_t binary_array[10]) {
     }
 }
 
+void draw_binary(uint8_t binary_array[10], int rowLower, int rowUpper) {
+    if (rowLower < 0 || rowLower > 4 || rowUpper < 0 || rowUpper > 4) {
+        ESP_LOGE("DRAW", "rowLower and rowUpper must be between 0 and 4");
+    }
+    if (rowLower > rowUpper) {
+        ESP_LOGE("DRAW", "rowLower must be smaller than rowUpper");
+    }
+
+    for (int8_t i = (rowLower * 5); i < (rowUpper * 5); i++) {
+        if (binary_array[i] == 1) {
+            led_strip_set_pixel(led_strip, i, 255, 255, 255);
+        } else {
+            led_strip_set_pixel(led_strip, i, 0, 0, 0);
+        }
+    }
+}
+
 void draw_data()
 {
+    uint8_t steps_read_binary[10];
+    uint8_t steps_calculated_binary[10];
+
+    if (output_type != OUTPUT_TYPE_READ) {
+        calc_steps_from_movement();
+        calculate_binary(current_measurement.movement, steps_calculated_binary);
+    }
+    if (output_type != OUTPUT_TYPE_CALCULATED){
+        calculate_binary(current_measurement.steps, steps_read_binary);
+    }
+
     led_strip_clear(led_strip);
 
-    // ToDo: Implement (make sure to take output_type into consideration)
+    if (output_type == OUTPUT_TYPE_READ) {
+        draw_binary(steps_calculated_binary, 0, 4);
+    } else if (output_type == OUTPUT_TYPE_CALCULATED) {
+        draw_binary(steps_read_binary, 0, 4);
+    } else if (output_type == OUTPUT_TYPE_COMPARISON) {
+        draw_binary(steps_calculated_binary, 0, 1);
+        draw_binary(steps_read_binary, 3, 4);
+    } else {
+        ESP_LOGE("DRAW", "Invalid output type");
+    }
 
     led_strip_refresh(led_strip);
 }
 
-
+void reset_steps()
+{
+    // ToDo: Call this when both buttons are pressed
+    calculated_steps = 0;
+    reset_accelerometer_steps();
+}
 
 void app_main(void)
 {
@@ -252,10 +330,11 @@ void app_main(void)
 
     ESP_LOGI("CONFIGURATION", "Everything configured, program start...");
 
-    while (true)
+    while (measurement_running)
     {
-        read_sensordata();
+        read_accelerometer_data();
         draw_data();
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+        // 25 Hz = Pedometer Low Power Sampling
+        vTaskDelay(40 / portTICK_PERIOD_MS);
     }
 }

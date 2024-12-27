@@ -1,1 +1,4 @@
-/build
+/build/
+/.settings/
+/managed_components/
+*.lock

@@ -61,8 +61,9 @@ typedef struct {
 uint16_t calculated_steps = 0;
 uint8_t output_type = OUTPUT_TYPE_COMPARISON;
 bool measurement_running = false;
+volatile uint8_t pressed_button = 0;
 
-measurement_t current_measurement = {
+volatile measurement_t current_measurement = {
     .steps = 0,
     .movement.x = 0,
     .movement.y = 0,
@@ -113,7 +114,6 @@ static void blink_led(void)
 
 static void configure_led(void)
 {
-    ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
     gpio_reset_pin(BLINK_GPIO);
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
@@ -177,27 +177,35 @@ void configure_accelerometer() {
     initI2C(i2c_port);
     ICM42688P_reset();
 
-    ESP_LOGD("SENSOR", "Accelerometer configured"); 
+    ESP_LOGD("SENSOR", "Accelerometer configured");
 }
 
 uint16_t ICM42688P_read_steps() {
-    // ToDo: Implement reading step register
-    return 0;
+uint8_t readBuffer[6];
+    ICM42688P_writeRegister(ICM42688P_R_PEDOMETER_READSTEPS);
+    ICM42688P_readRegister(readBuffer);
+    return (readBuffer[0] << 8) | readBuffer[1];
 }
 
 uint16_t ICM42688P_read_movementX() {
-    // ToDo: Implement reading movement register
-    return 0;
+    uint8_t readBuffer[6];
+    ICM42688P_writeRegister(ICM42688P_R_ACCELEROMETER_READX);
+    ICM42688P_readRegister(readBuffer);
+    return (readBuffer[0] << 8) | readBuffer[1];
 }
 
 uint16_t ICM42688P_read_movementY() {
-    // ToDo: Implement reading movement register
-    return 0;
+    uint8_t readBuffer[6];
+    ICM42688P_writeRegister(ICM42688P_R_ACCELEROMETER_READY);
+    ICM42688P_readRegister(readBuffer);
+    return (readBuffer[0] << 8) | readBuffer[1];
 }
 
 uint16_t ICM42688P_read_movementZ() {
-    // ToDo: Implement reading movement register
-    return 0;
+    uint8_t readBuffer[6];
+    ICM42688P_writeRegister(ICM42688P_R_ACCELEROMETER_READZ);
+    ICM42688P_readRegister(readBuffer);
+    return (readBuffer[0] << 8) | readBuffer[1];
 }
 
 void ICM42688P_read_movement(measurement_t *measurement) {
@@ -211,6 +219,8 @@ measurement_t ICM42688P_read_all() {
     
     measurement.steps = ICM42688P_read_steps();
     ICM42688P_read_movement(&measurement);
+
+    ESP_LOGD("MEASUREMENT", "Steps: %d\nX: %d\nY: %d\nZ: %d", measurement.steps, measurement.movement.x, measurement.movement.y, measurement.movement.z); 
 
     return measurement;
 }
@@ -234,19 +244,27 @@ void switch_mode() {
 void toggle_measurement() {
     if (measurement_running) {
         ICM42688P_stop_measurement();
+        ESP_LOGI("MEASUREMENT", "Measurement stoped");
     } else {
         ICM42688P_start_measurement();
+        ESP_LOGI("MEASUREMENT", "Measurement started"); 
     }
     measurement_running = !measurement_running;
 }
 
-static void IRAM_ATTR gpio_isr_handler(void* arg) {
-    uint32_t gpio_num = (uint32_t) arg;
-    if (gpio_num == BUTTON_GPIO_LEFT) {
+void handle_button_press() {
+    if (pressed_button == BUTTON_GPIO_LEFT) {
         switch_mode();
-    } else if (gpio_num == BUTTON_GPIO_RIGHT) {
+    } else if (pressed_button == BUTTON_GPIO_RIGHT) {
         toggle_measurement();
     }
+    pressed_button = 0;
+}
+
+static void IRAM_ATTR gpio_isr_handler(void* arg) {
+    uint8_t gpio_num = (uint32_t) arg;
+    pressed_button = gpio_num;
+    ESP_LOGD("BUTTON", "Interrupt of button %d triggered", gpio_num); 
 }
 
 void configure_buttons() {
@@ -422,10 +440,17 @@ void configure_system() {
 void app_main(void) {
     configure_system();
 
-    while (measurement_running)
-    {
-        read_accelerometer_data();
-        draw_data();
+    while (true) {
+        if (pressed_button != 0) {
+            handle_button_press();
+        }
+        
+        if (measurement_running)
+        {
+            read_accelerometer_data();
+            draw_data();
+        }
+        
         // 25 Hz = Pedometer Low Power Sampling
         vTaskDelay(40 / portTICK_PERIOD_MS);
     }

@@ -1,5 +1,7 @@
 {
     "files.associations": {
         "led_strip.h": "c"
-    }
+    },
+    "idf.flashType": "UART",
+    "idf.portWin": "COM3"
 }

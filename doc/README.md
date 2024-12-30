@@ -1,5 +1,7 @@
 # ESP32 Pedometer
-This project implements a pedometer using an ESP32 microcontroller. The pedometer reads data from an ICM-42688-P accelerometer via I2C, processes the data to detect steps, and displays the step count using an LED strip. The project also includes button controls to switch modes and start/stop measurements.
+This project implements a pedometer using an ESP32 microcontroller. The pedometer reads data from an ICM-42688-P accelerometer, processes the data to detect steps, and displays the step count using an LED strip. The project also includes button controls to switch modes and start/stop measurements.
+
+Per default the data is read via SPI, but there is also a (non-functional) implementation of I<sup>2</sup>C provided. To change this, the file `/components/ICM42688P/CMakeList.txt` has to be adjusted, by exchanging the value of "`SRCS`" from "`ICM42688P_SPI.c`" to "`ICM42688P_I2C.c`".
 
 ## Table of Contents
 * Features
@@ -12,7 +14,7 @@ This project implements a pedometer using an ESP32 microcontroller. The pedomete
 * License
 
 ## Features
-* Reads accelerometer data from ICM-42688-P via I2C
+* Reads accelerometer data from ICM-42688-P
 * Detects steps based on accelerometer data
 * Read internal step count of ICM-42688-P
 * Displays step count on an LED strip
@@ -61,7 +63,7 @@ idf.py flash
 ## Configuration
 The project can be configured using the `menuconfig` tool provided by ESP-IDF. Key configuration options include:
 * GPIO pins for the LED strip and buttons
-* I2C settings for the accelerometer
+* SPI/I2C settings for the accelerometer
 * LED strip backend (RMT or SPI)
 
 
@@ -86,7 +88,7 @@ The project can be configured using the `menuconfig` tool provided by ESP-IDF. K
 ### Key Functions
 `configure_led()`: Configures the LED strip.
 `configure_buttons()`: Configures the buttons and sets up interrupt handlers.
-`configure_accelerometer()`: Initializes the I2C connection and configures the accelerometer.
+`configure_accelerometer()`: Initializes the SPI/I2C connection and configures the accelerometer.
 `read_accelerometer_data()`: Reads data from the accelerometer and processes it to detect steps.
 `draw_data()`: Displays the step count on the LED strip.
 `app_main()`: The main application loop.

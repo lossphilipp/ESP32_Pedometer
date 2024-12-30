@@ -11,6 +11,7 @@
 #include <driver/i2c.h>
 
 #include "ICM42688P.h"
+#include "ringbuffer.h"
 
 #define BLINK_GPIO CONFIG_BLINK_GPIO
 #define BLINK_PERIOD CONFIG_BLINK_PERIOD
@@ -37,8 +38,8 @@ volatile measurement_t current_measurement = {
     .movement.y = 0,
     .movement.z = 0
 };
-movement_t calculation_buffer[STEP_CALCULATION_BUFFER_SIZE]; // Ringbuffer
-uint8_t calculation_buffer_index = 0;
+
+RingbufferHandle calculation_buffer;
 
 #ifdef CONFIG_BLINK_LED_STRIP
 
@@ -113,9 +114,13 @@ void toggle_measurement() {
 
 void handle_button_press() {
     if (pressed_button == BUTTON_GPIO_LEFT) {
+        ESP_LOGD("BUTTON", "Handling of left button triggered");
         switch_mode();
     } else if (pressed_button == BUTTON_GPIO_RIGHT) {
+        ESP_LOGD("BUTTON", "Handling of right button triggered");
         toggle_measurement();
+    } else {
+        ESP_LOGE("BUTTON", "Invalid GPIO number of pressed button! Number: %d", pressed_button);
     }
     pressed_button = 0;
 }
@@ -123,7 +128,6 @@ void handle_button_press() {
 static void IRAM_ATTR gpio_isr_handler(void* arg) {
     uint8_t gpio_num = (uint32_t) arg;
     pressed_button = gpio_num;
-    ESP_LOGD("BUTTON", "Interrupt of button %d triggered", gpio_num); 
 }
 
 void configure_buttons() {
@@ -173,8 +177,10 @@ bool detect_step(movement_t current_movement) {
     // Check the last measurements for the same direction
     int8_t same_direction_count = 0;
     for (int8_t i = 0; i < STEP_SAMPLE_ERROR_TRESHOLD; i++) {
-        int8_t index = (calculation_buffer_index - 1 - i + STEP_CALCULATION_BUFFER_SIZE) % STEP_CALCULATION_BUFFER_SIZE;
-        movement_t previous_movement = calculation_buffer[index];
+        movement_t previous_movement;
+        if (!ringbuffer_get(calculation_buffer, &previous_movement, -1 - i)) {
+            break;
+        }
 
         if (is_vector_direction_same(current_movement, previous_movement)) {
             same_direction_count++;
@@ -183,6 +189,7 @@ bool detect_step(movement_t current_movement) {
             break;
         }
     }
+
     if (same_direction_count < STEP_SAMPLE_ERROR_TRESHOLD) {
         return false;
     }
@@ -190,8 +197,10 @@ bool detect_step(movement_t current_movement) {
     // Check the previous measurements for the opposite direction
     int8_t opposite_direction_count = 0;
     for (int8_t i = STEP_SAMPLE_ERROR_TRESHOLD; i < 2 * STEP_SAMPLE_ERROR_TRESHOLD; i++) {
-        int8_t index = (calculation_buffer_index - 1 - i + STEP_CALCULATION_BUFFER_SIZE) % STEP_CALCULATION_BUFFER_SIZE;
-        movement_t previous_movement = calculation_buffer[index];
+        movement_t previous_movement;
+        if (!ringbuffer_get(calculation_buffer, &previous_movement, -1 - i)) {
+            break;
+        }
 
         if (is_vector_direction_opposite(current_movement, previous_movement)) {
             opposite_direction_count++;
@@ -211,8 +220,7 @@ void calc_steps_from_movement() {
         calculated_steps++;
     }
 
-    calculation_buffer[calculation_buffer_index] = current_movement;
-    calculation_buffer_index = (calculation_buffer_index + 1) % STEP_CALCULATION_BUFFER_SIZE;
+    ringbuffer_add(calculation_buffer, &current_movement);
 }
 
 void read_accelerometer_data() {
@@ -286,13 +294,17 @@ void reset_steps() {
 }
 
 void configure_system() {
+    calculation_buffer = ringbuffer_create(STEP_CALCULATION_BUFFER_SIZE, sizeof(movement_t));
+    if (calculation_buffer == RINGBUFFER_ERROR_OUTOFMEMORY) {
+        ESP_LOGE(RINGBUFFER_TAG, "Could not allocate memory for calculation buffer");
+    }
+
     configure_led();
     configure_buttons();
     configure_accelerometer();
 
     // Init time according to datasheet
     vTaskDelay(50 / portTICK_PERIOD_MS);
-    ICM42688P_start_measurement();
 
     ESP_LOGI("CONFIGURATION", "Everything configured, program start...");
 }

@@ -1,7 +1,5 @@
 #include "ICM42688P.h"
 
-#ifdef ICM42688P_I2C_ADDRESS
-
 i2c_port_t i2c_port = I2C_NUM_0;
 
 static void initI2C(i2c_port_t i2c_num) {
@@ -17,7 +15,7 @@ static void initI2C(i2c_port_t i2c_num) {
     i2c_param_config(i2c_num, &conf);
     ESP_ERROR_CHECK(i2c_driver_install(i2c_num, conf.mode, 0, 0, 0));
 
-    ESP_LOGD("I2C", "I2C connection initialized"); 
+    ESP_LOGD(ICM42688P_TAG, "I2C connection initialized"); 
 }
 
 static void ICM42688P_writeRegister(uint16_t command) {
@@ -25,7 +23,7 @@ static void ICM42688P_writeRegister(uint16_t command) {
     //ESP_ERROR_CHECK(i2c_master_write_to_device(i2c_port, ICM42688P_I2C_ADDRESS, writeCmd, 2, pdMS_TO_TICKS(50)));
     esp_err_t err = i2c_master_write_to_device(i2c_port, ICM42688P_I2C_ADDRESS, writeCmd, 2, pdMS_TO_TICKS(50));
     if (err != ESP_OK) {
-        ESP_LOGE("I2C", "Failed to write to register: %s", esp_err_to_name(err));
+        ESP_LOGE(ICM42688P_TAG, "Failed to write to register: %s", esp_err_to_name(err));
     }
 }
 
@@ -33,7 +31,7 @@ static void ICM42688P_readRegister(uint8_t readBuffer[6]) {
     //ESP_ERROR_CHECK(i2c_master_read_from_device(i2c_port, ICM42688P_I2C_ADDRESS, readBuffer, 6, pdMS_TO_TICKS(50)));
     esp_err_t err = i2c_master_read_from_device(i2c_port, ICM42688P_I2C_ADDRESS, readBuffer, 6, pdMS_TO_TICKS(50));
     if (err != ESP_OK) {
-        ESP_LOGE("I2C", "Failed to read from register: %s", esp_err_to_name(err));
+        ESP_LOGE(ICM42688P_TAG, "Failed to read from register: %s", esp_err_to_name(err));
     }
 }
 
@@ -52,7 +50,7 @@ void configure_accelerometer() {
     initI2C(i2c_port);
     ICM42688P_reset();
 
-    ESP_LOGD("SENSOR", "Accelerometer configured");
+    ESP_LOGD(ICM42688P_TAG, "Accelerometer configured");
 }
 
 uint16_t ICM42688P_read_steps() {
@@ -95,7 +93,7 @@ measurement_t ICM42688P_read_all() {
     measurement.steps = ICM42688P_read_steps();
     ICM42688P_read_movement(&measurement);
 
-    ESP_LOGD("MEASUREMENT", "Steps: %d\nX: %d\nY: %d\nZ: %d", measurement.steps, measurement.movement.x, measurement.movement.y, measurement.movement.z); 
+    ESP_LOGD(ICM42688P_TAG, "\nSteps: %d\nX: %d\nY: %d\nZ: %d", measurement.steps, measurement.movement.x, measurement.movement.y, measurement.movement.z); 
 
     return measurement;
 }
@@ -107,4 +105,3 @@ void ICM42688P_start_measurement() {
 void ICM42688P_stop_measurement() {
     ICM42688P_writeRegister(ICM42688P_W_PEDOMETER_DISABLE);
 }
-#endif

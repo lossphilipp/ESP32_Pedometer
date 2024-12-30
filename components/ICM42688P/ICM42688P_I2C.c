@@ -6,24 +6,7 @@
 #define I2C_MASTER_SCL_IO CONFIG_I2C_MASTER_SCL_IO
 #define I2C_MASTER_BITRATE CONFIG_I2C_MASTER_BITRATE
 
-// https://invensense.tdk.com/products/motion-tracking/6-axis/icm-42688-p/
 #define ICM42688P_I2C_ADDRESS               0x80   // ToDo: Correct?
-
-#define ICM42688P_W_CONFIG_RESET            0x1101
-#define ICM42688P_W_CONFIG_ODR              0x5049
-#define ICM42688P_W_CONFIG_MODE             0x4E02
-#define ICM42688P_W_CONFIG_APEX             0x5602
-#define ICM42688P_W_CONFIG_DMP              0x4B20
-#define ICM42688P_W_CONFIG_DMP_INIT         0x4B40
-#define ICM42688P_W_CONFIG_BANK             0x4E20
-
-#define ICM42688P_W_PEDOMETER_ENABLE        0x5622
-#define ICM42688P_W_PEDOMETER_DISABLE       0x5602
-#define ICM42688P_R_PEDOMETER_READSTEPS     0x31
-
-#define ICM42688P_R_ACCELEROMETER_READX     0x1F
-#define ICM42688P_R_ACCELEROMETER_READY     0x21
-#define ICM42688P_R_ACCELEROMETER_READZ     0x23
 
 i2c_port_t i2c_port = I2C_NUM_0;
 
@@ -61,14 +44,14 @@ static void ICM42688P_readRegister(uint8_t readBuffer[6]) {
 }
 
 void ICM42688P_reset() {
-    ICM42688P_writeRegister(ICM42688P_W_CONFIG_RESET);
-    ICM42688P_writeRegister(ICM42688P_W_CONFIG_ODR);
-    ICM42688P_writeRegister(ICM42688P_W_CONFIG_MODE);
-    ICM42688P_writeRegister(ICM42688P_W_CONFIG_APEX);
-    ICM42688P_writeRegister(ICM42688P_W_CONFIG_DMP);
+    ICM42688P_writeRegister(ICM42688P_CONFIG_RESET);
+    ICM42688P_writeRegister(ICM42688P_CONFIG_ODR);
+    ICM42688P_writeRegister(ICM42688P_CONFIG_MODE);
+    ICM42688P_writeRegister(ICM42688P_CONFIG_APEX);
+    ICM42688P_writeRegister(ICM42688P_CONFIG_DMP_RESET);
     vTaskDelay(1 / portTICK_PERIOD_MS); // According to datasheet
-    ICM42688P_writeRegister(ICM42688P_W_CONFIG_DMP_INIT);
-    // ICM42688P_writeRegister(ICM42688P_W_CONFIG_BANK); // Would create interrupt on step
+    ICM42688P_writeRegister(ICM42688P_CONFIG_DMP_INIT);
+    // ICM42688P_writeRegister(ICM42688P_CONFIG_BANK); // Would create interrupt on step
 }
 
 void configure_accelerometer() {
@@ -80,28 +63,28 @@ void configure_accelerometer() {
 
 uint16_t ICM42688P_read_steps() {
     uint8_t readBuffer[6];
-    ICM42688P_writeRegister(ICM42688P_R_PEDOMETER_READSTEPS);
+    ICM42688P_writeRegister(ICM42688P_STEPS_OUT_L);
     ICM42688P_readRegister(readBuffer);
     return (readBuffer[0] << 8) | readBuffer[1];
 }
 
 uint16_t ICM42688P_read_movementX() {
     uint8_t readBuffer[6];
-    ICM42688P_writeRegister(ICM42688P_R_ACCELEROMETER_READX);
+    ICM42688P_writeRegister(ICM42688P_ACCEL_XOUT_H);
     ICM42688P_readRegister(readBuffer);
     return (readBuffer[0] << 8) | readBuffer[1];
 }
 
 uint16_t ICM42688P_read_movementY() {
     uint8_t readBuffer[6];
-    ICM42688P_writeRegister(ICM42688P_R_ACCELEROMETER_READY);
+    ICM42688P_writeRegister(ICM42688P_ACCEL_YOUT_H);
     ICM42688P_readRegister(readBuffer);
     return (readBuffer[0] << 8) | readBuffer[1];
 }
 
 uint16_t ICM42688P_read_movementZ() {
     uint8_t readBuffer[6];
-    ICM42688P_writeRegister(ICM42688P_R_ACCELEROMETER_READZ);
+    ICM42688P_writeRegister(ICM42688P_ACCEL_ZOUT_H);
     ICM42688P_readRegister(readBuffer);
     return (readBuffer[0] << 8) | readBuffer[1];
 }
@@ -124,9 +107,9 @@ measurement_t ICM42688P_read_all() {
 }
 
 void ICM42688P_start_measurement() {
-    ICM42688P_writeRegister(ICM42688P_W_PEDOMETER_ENABLE);
+    ICM42688P_writeRegister(ICM42688P_PEDOMETER_ENABLE);
 }
 
 void ICM42688P_stop_measurement() {
-    ICM42688P_writeRegister(ICM42688P_W_PEDOMETER_DISABLE);
+    ICM42688P_writeRegister(ICM42688P_PEDOMETER_DISABLE);
 }

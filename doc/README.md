@@ -17,7 +17,7 @@ Per default the data is read via SPI, but there is also a (non-functional) imple
 * Reads accelerometer data from ICM-42688-P
 * Detects steps based on accelerometer data
 * Read internal step count of ICM-42688-P
-* Displays step count on an LED strip
+* Displays step count on an LED strip (red = manually calculated | green = red from pedometer)
 * Button controls for switching modes and starting/stopping measurements
 
 ## Hardware Requirements
@@ -85,13 +85,10 @@ The project can be configured using the `menuconfig` tool provided by ESP-IDF. K
     * Displays the step count on the LED strip.
     * Handles button inputs to switch modes and start/stop measurements.
 
+ToDo: Finish here
+
 ### Key Functions
-`configure_led()`: Configures the LED strip.
-`configure_buttons()`: Configures the buttons and sets up interrupt handlers.
-`configure_accelerometer()`: Initializes the SPI/I2C connection and configures the accelerometer.
-`read_accelerometer_data()`: Reads data from the accelerometer and processes it to detect steps.
-`draw_data()`: Displays the step count on the LED strip.
-`app_main()`: The main application loop.
+
 
 ## License
 This project is licensed under the MIT License. See the LICENSE file for details.

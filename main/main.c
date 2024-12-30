@@ -168,7 +168,7 @@ bool is_vector_direction_opposite(movement_t movement1, movement_t movement2) {
     return calculate_dot_product(movement1, movement2) < -0.5; // 1 = same direction, 0 = orthogonal, -1 = opposite direction
 }
 
-// ToDo: Review logic and refactor (method way to big)
+// ToDo: Review logic and refactor (method way to big & not working!)
 bool detect_step(movement_t current_movement) {
     if (!is_vector_above_threshold(current_movement)) {
         return false;
@@ -243,47 +243,71 @@ void calculate_binary(uint16_t number, uint8_t binary_array[10]) {
     }
 }
 
-void draw_binary(uint8_t binary_array[10], int rowLower, int rowUpper) {
-    if (rowLower < 0 || rowLower > 4 || rowUpper < 0 || rowUpper > 4) {
+void draw_binary(uint8_t binary_array[10], uint8_t rowLower, uint8_t rowUpper, uint8_t color[3]) {
+    if (rowLower > 4 || rowUpper > 4) {
         ESP_LOGE("DRAW", "rowLower and rowUpper must be between 0 and 4");
+        return;
     }
     if (rowLower > rowUpper) {
         ESP_LOGE("DRAW", "rowLower must be smaller than rowUpper");
+        return;
     }
 
-    for (int8_t i = (rowLower * 5); i < (rowUpper * 5); i++) {
-        if (binary_array[i] == 1) {
-            led_strip_set_pixel(led_strip, i, 255, 255, 255);
-        } else {
-            led_strip_set_pixel(led_strip, i, 0, 0, 0);
+    char log_message[128];
+    int offset = snprintf(log_message, sizeof(log_message), "Drawing binary array from row %d to %d: ", rowLower, rowUpper);
+    for (int i = 0; i < 10; i++) {
+        offset += snprintf(log_message + offset, sizeof(log_message) - offset, "%d", binary_array[i]);
+    }
+    ESP_LOGD("DRAW", "%s", log_message);
+
+    for (int8_t i = rowLower; i <= rowUpper; i++) {
+        for (int8_t j = 0; j < 5; j++) {
+            int8_t led_index = i * 5 + j;
+            int8_t array_index = led_index - rowLower * 5;
+            if (binary_array[array_index] == 1) {
+                led_strip_set_pixel(led_strip, led_index, color[0], color[1], color[2]);
+            } else {
+                led_strip_set_pixel(led_strip, led_index, 0, 0, 0);
+            }
         }
     }
 }
 
-void draw_data() {
-    uint8_t steps_read_binary[10];
+void draw_calculated_steps() {
     uint8_t steps_calculated_binary[10];
+    calculate_binary(calculated_steps, steps_calculated_binary);
+    uint8_t color[3] = {50, 0, 0}; // Red
+    draw_binary(steps_calculated_binary, 0, 1, color);
+}
 
-    if (output_type != OUTPUT_TYPE_READ) {
-        calculate_binary(calculated_steps, steps_calculated_binary);
-    }
-    if (output_type != OUTPUT_TYPE_CALCULATED){
-        calculate_binary(current_measurement.steps, steps_read_binary);
-    }
+void draw_read_steps() {
+    uint8_t steps_read_binary[10];
+    calculate_binary(current_measurement.steps, steps_read_binary);
+    uint8_t color[3] = {0, 50, 0}; // Green
+    draw_binary(steps_read_binary, 3, 4, color);
+}
 
-    led_strip_clear(led_strip);
+void draw_data() {
+    //led_strip_clear(led_strip);
 
     if (output_type == OUTPUT_TYPE_READ) {
-        draw_binary(steps_calculated_binary, 0, 1);
+        draw_read_steps();
     } else if (output_type == OUTPUT_TYPE_CALCULATED) {
-        draw_binary(steps_read_binary, 3, 4);
+        draw_calculated_steps();
     } else if (output_type == OUTPUT_TYPE_COMPARISON) {
-        draw_binary(steps_calculated_binary, 0, 1);
-        draw_binary(steps_read_binary, 3, 4);
+        draw_read_steps();
+        draw_calculated_steps();
     } else {
         ESP_LOGE("DRAW", "Invalid output type");
     }
 
+    led_strip_refresh(led_strip);
+}
+
+void draw_separator() {
+    for (int8_t i = 10; i < 15; i++) {
+        led_strip_set_pixel(led_strip, i, 50, 50, 50);
+    }
     led_strip_refresh(led_strip);
 }
 
@@ -306,12 +330,14 @@ void configure_system() {
     // Init time according to datasheet
     vTaskDelay(50 / portTICK_PERIOD_MS);
 
+    draw_separator();
     ESP_LOGI("CONFIGURATION", "Everything configured, program start...");
 }
 
 void app_main(void) {
     configure_system();
 
+    uint8_t run_counter = 0;
     while (true) {
         if (pressed_button != 0) {
             handle_button_press();
@@ -320,7 +346,12 @@ void app_main(void) {
         if (measurement_running)
         {
             read_accelerometer_data();
-            draw_data();
+            run_counter++;
+
+            // Update the drawing every 200ms run to save resources
+            if (run_counter % 5 == 0) {
+                draw_data();
+            }
         }
         
         // 25 Hz = Pedometer Low Power Sampling

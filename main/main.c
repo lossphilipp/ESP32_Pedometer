@@ -95,6 +95,7 @@ static void configure_led(void)
 #endif
 
 #if defined(BUTTON_GPIO_LEFT) || defined(BUTTON_GPIO_RIGHT)
+// Trying to do this stuff within the interrupt always leads to a kernel panic
 
 void switch_mode() {
     output_type = (output_type + 1) % 3;
@@ -312,9 +313,34 @@ void draw_separator() {
 }
 
 void reset_steps() {
-    // ToDo: Call this when both buttons are pressed
     calculated_steps = 0;
     reset_accelerometer_steps();
+}
+
+void check_reset_initiated() {
+    uint32_t left = gpio_get_level(BUTTON_GPIO_LEFT);
+    uint32_t right = gpio_get_level(BUTTON_GPIO_RIGHT);
+
+    if (left == 0 && right == 0) {
+        bool reset_initiated = true;
+        for (uint8_t i = 0; i < 5; i++) {
+            vTaskDelay(250 / portTICK_PERIOD_MS);
+            left = gpio_get_level(BUTTON_GPIO_LEFT);
+            right = gpio_get_level(BUTTON_GPIO_RIGHT);
+            if (left != 0 || right != 0) {
+                reset_initiated = false;
+                break;
+            }
+        }
+
+        if (reset_initiated) {
+            ESP_LOGI("RESET", "Reset initiated");
+            reset_steps();
+            // ToDo: Create visual feedback of reset and att delay
+        } else {
+            ESP_LOGI("RESET", "Reset canceled");
+        }
+    }
 }
 
 void configure_system() {
@@ -339,6 +365,8 @@ void app_main(void) {
 
     uint8_t run_counter = 0;
     while (true) {
+        check_reset_initiated();
+        
         if (pressed_button != 0) {
             handle_button_press();
         }
@@ -348,7 +376,7 @@ void app_main(void) {
             read_accelerometer_data();
             run_counter++;
 
-            // Update the drawing every 200ms run to save resources
+            // Update the drawing every 200ms to save resources
             if (run_counter % 5 == 0) {
                 draw_data();
             }

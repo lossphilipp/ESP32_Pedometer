@@ -68,7 +68,6 @@ bool ringbuffer_get(RingbufferHandle ringbufferHandle, void* pValue, int32_t ind
 	if (index >= pRingbuffer->count) {
 		return false;
 	}
-	// ToDo: Check if this works
 	if (index < 0) {
 		index = (pRingbuffer->writeOffset + index + pRingbuffer->size) % pRingbuffer->size;
 	}

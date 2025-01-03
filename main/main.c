@@ -73,21 +73,115 @@ static void configure_led(void)
     ESP_LOGD("LED", "LED configured"); 
 }
 
-#elif CONFIG_BLINK_LED_GPIO
+// ######################### Drawing #########################
 
-static void blink_led(void)
-{
-    /* Set the GPIO level according to the state (LOW or HIGH)*/
-    gpio_set_level(BLINK_GPIO, s_led_state);
+typedef struct {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+} color_t;
+
+uint8_t get_pixel_index(uint8_t row, uint8_t col) {
+    return row * 5 + col;
 }
 
-static void configure_led(void)
-{
-    gpio_reset_pin(BLINK_GPIO);
-    /* Set the GPIO as a push/pull output */
-    gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
+void calculate_binary(uint16_t number, uint8_t binary_array[10]) {
+    for (int8_t i = 9; i >= 0; i--) {
+        binary_array[i] = number % 2;
+        number /= 2;
+    }
+}
 
-    ESP_LOGD("LED", "LED configured"); 
+void draw_binary(uint8_t binary_array[10], uint8_t rowLower, uint8_t rowUpper, color_t color) {
+    if (rowLower > 4 || rowUpper > 4) {
+        ESP_LOGE("DRAW", "rowLower and rowUpper must be between 0 and 4");
+        return;
+    }
+    if (rowLower > rowUpper) {
+        ESP_LOGE("DRAW", "rowLower must be smaller than rowUpper");
+        return;
+    }
+
+    char log_message[128];
+    int offset = snprintf(log_message, sizeof(log_message), "Drawing binary array from row %d to %d: ", rowLower, rowUpper);
+    for (int i = 0; i < 10; i++) {
+        offset += snprintf(log_message + offset, sizeof(log_message) - offset, "%d", binary_array[i]);
+    }
+    ESP_LOGD("DRAW", "%s", log_message);
+
+    for (int8_t i = rowLower; i <= rowUpper; i++) {
+        for (int8_t j = 0; j < 5; j++) {
+            int8_t led_index = i * 5 + j;
+            int8_t array_index = led_index - rowLower * 5;
+            if (binary_array[array_index] == 1) {
+                led_strip_set_pixel(led_strip, led_index, color.r, color.g, color.b);
+            } else {
+                led_strip_set_pixel(led_strip, led_index, 0, 0, 0);
+            }
+        }
+    }
+}
+
+void draw_calculated_steps() {
+    uint8_t steps_calculated_binary[10];
+    calculate_binary(calculated_steps, steps_calculated_binary);
+    color_t color = {50, 0, 0}; // Red
+    draw_binary(steps_calculated_binary, 0, 1, color);
+}
+
+void draw_read_steps() {
+    uint8_t steps_read_binary[10];
+    calculate_binary(current_measurement.steps, steps_read_binary);
+    color_t color = {0, 50, 0}; // Green
+    draw_binary(steps_read_binary, 3, 4, color);
+}
+
+void draw_data() {
+    //led_strip_clear(led_strip);
+
+    if (output_type == OUTPUT_TYPE_READ) {
+        draw_read_steps();
+    } else if (output_type == OUTPUT_TYPE_CALCULATED) {
+        draw_calculated_steps();
+    } else if (output_type == OUTPUT_TYPE_COMPARISON) {
+        draw_read_steps();
+        draw_calculated_steps();
+    } else {
+        ESP_LOGE("DRAW", "Invalid output type");
+    }
+
+    led_strip_refresh(led_strip);
+}
+
+void draw_separator(color_t color) {
+    for (uint8_t i = 10; i < 15; i++) {
+        led_strip_set_pixel(led_strip, i, color.r, color.g, color.b);
+    }
+    led_strip_refresh(led_strip);
+}
+
+void draw_separator_running() {
+    color_t color = {20, 50, 20}; // Light Green
+    draw_separator(color);
+}
+
+void draw_separator_stopped() {
+    color_t color = {50, 20, 20}; // Light Red
+    draw_separator(color);
+}
+
+void draw_blinker(uint8_t number_of_blinks, color_t color) {
+    for (uint8_t i = 0; i < number_of_blinks; i++) {
+        for (uint8_t j = 0; j < 25; j++) {
+            led_strip_set_pixel(led_strip, j, color.r, color.g, color.b);
+        }
+        led_strip_refresh(led_strip);
+        vTaskDelay(250 / portTICK_PERIOD_MS);
+
+        led_strip_clear(led_strip);
+        led_strip_refresh(led_strip);
+        vTaskDelay(250 / portTICK_PERIOD_MS);
+    }
 }
 
 #else
@@ -105,9 +199,11 @@ void switch_mode() {
 void toggle_measurement() {
     if (measurement_running) {
         ICM42688P_stop_measurement();
+        draw_separator_stopped();
         ESP_LOGI("MEASUREMENT", "Measurement stoped");
     } else {
         ICM42688P_start_measurement();
+        draw_separator_running();
         ESP_LOGI("MEASUREMENT", "Measurement started"); 
     }
     measurement_running = !measurement_running;
@@ -137,7 +233,7 @@ void configure_buttons() {
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_POSEDGE
+        .intr_type = GPIO_INTR_NEGEDGE
     };
     gpio_config(&gpioConfigIn);
 
@@ -233,85 +329,6 @@ void reset_accelerometer_steps() {
     ICM42688P_reset();
 }
 
-uint8_t get_pixel_index(uint8_t row, uint8_t col) {
-    return row * 5 + col;
-}
-
-void calculate_binary(uint16_t number, uint8_t binary_array[10]) {
-    for (int8_t i = 9; i >= 0; i--) {
-        binary_array[i] = number % 2;
-        number /= 2;
-    }
-}
-
-void draw_binary(uint8_t binary_array[10], uint8_t rowLower, uint8_t rowUpper, uint8_t color[3]) {
-    if (rowLower > 4 || rowUpper > 4) {
-        ESP_LOGE("DRAW", "rowLower and rowUpper must be between 0 and 4");
-        return;
-    }
-    if (rowLower > rowUpper) {
-        ESP_LOGE("DRAW", "rowLower must be smaller than rowUpper");
-        return;
-    }
-
-    char log_message[128];
-    int offset = snprintf(log_message, sizeof(log_message), "Drawing binary array from row %d to %d: ", rowLower, rowUpper);
-    for (int i = 0; i < 10; i++) {
-        offset += snprintf(log_message + offset, sizeof(log_message) - offset, "%d", binary_array[i]);
-    }
-    ESP_LOGD("DRAW", "%s", log_message);
-
-    for (int8_t i = rowLower; i <= rowUpper; i++) {
-        for (int8_t j = 0; j < 5; j++) {
-            int8_t led_index = i * 5 + j;
-            int8_t array_index = led_index - rowLower * 5;
-            if (binary_array[array_index] == 1) {
-                led_strip_set_pixel(led_strip, led_index, color[0], color[1], color[2]);
-            } else {
-                led_strip_set_pixel(led_strip, led_index, 0, 0, 0);
-            }
-        }
-    }
-}
-
-void draw_calculated_steps() {
-    uint8_t steps_calculated_binary[10];
-    calculate_binary(calculated_steps, steps_calculated_binary);
-    uint8_t color[3] = {50, 0, 0}; // Red
-    draw_binary(steps_calculated_binary, 0, 1, color);
-}
-
-void draw_read_steps() {
-    uint8_t steps_read_binary[10];
-    calculate_binary(current_measurement.steps, steps_read_binary);
-    uint8_t color[3] = {0, 50, 0}; // Green
-    draw_binary(steps_read_binary, 3, 4, color);
-}
-
-void draw_data() {
-    //led_strip_clear(led_strip);
-
-    if (output_type == OUTPUT_TYPE_READ) {
-        draw_read_steps();
-    } else if (output_type == OUTPUT_TYPE_CALCULATED) {
-        draw_calculated_steps();
-    } else if (output_type == OUTPUT_TYPE_COMPARISON) {
-        draw_read_steps();
-        draw_calculated_steps();
-    } else {
-        ESP_LOGE("DRAW", "Invalid output type");
-    }
-
-    led_strip_refresh(led_strip);
-}
-
-void draw_separator() {
-    for (int8_t i = 10; i < 15; i++) {
-        led_strip_set_pixel(led_strip, i, 50, 50, 50);
-    }
-    led_strip_refresh(led_strip);
-}
-
 void reset_steps() {
     calculated_steps = 0;
     reset_accelerometer_steps();
@@ -335,8 +352,14 @@ void check_reset_initiated() {
 
         if (reset_initiated) {
             ESP_LOGI("RESET", "Reset initiated");
+            if (measurement_running) {
+                toggle_measurement();
+            }
             reset_steps();
-            // ToDo: Create visual feedback of reset and att delay
+
+            color_t color = {50, 0, 0}; // Red
+            draw_blinker(3, color);
+            draw_separator_stopped();
         } else {
             ESP_LOGI("RESET", "Reset canceled");
         }
@@ -356,7 +379,7 @@ void configure_system() {
     // Init time according to datasheet
     vTaskDelay(50 / portTICK_PERIOD_MS);
 
-    draw_separator();
+    draw_separator_stopped();
     ESP_LOGI("CONFIGURATION", "Everything configured, program start...");
 }
 

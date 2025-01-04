@@ -25,7 +25,7 @@ RingbufferHandle ringbuffer_create(uint32_t size, size_t element_size) {
 	pRingbuffer->element_size = element_size;
 	pRingbuffer->writeOffset = 0;
 	pRingbuffer->count = 0;
-	ESP_LOGD(RINGBUFFER_TAG, "Ringbuffer of size %lu created", size);
+	ESP_LOGI(RINGBUFFER_TAG, "Ringbuffer of size %lu created", size);
 	return (RingbufferHandle) pRingbuffer;
 }
 
@@ -60,7 +60,7 @@ void ringbuffer_add(RingbufferHandle ringbufferHandle, const void* value) {
 	if (pRingbuffer->count < pRingbuffer->size) {
 		pRingbuffer->count += 1;
 	}
-	ESP_LOGD(RINGBUFFER_TAG, "Added value at position %lu", pRingbuffer->writeOffset);
+	ESP_LOGV(RINGBUFFER_TAG, "Added value at position %lu", pRingbuffer->writeOffset);
 }
 
 bool ringbuffer_get(RingbufferHandle ringbufferHandle, void* pValue, int32_t index) {

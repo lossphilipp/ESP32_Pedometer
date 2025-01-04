@@ -99,7 +99,7 @@ uint8_t ICM42688P_read_single_reg(uint8_t reg) {
     return rcv[1];
 }
 
-esp_err_t ICM42688P_read_data(uint8_t start_reg, uint8_t *data, size_t length) {
+esp_err_t ICM42688P_read_data(uint8_t start_reg, uint8_t* pData, size_t length) {
     spi_transaction_t spiTransaction = { 0 };
 
     uint8_t cmd[2];
@@ -110,7 +110,7 @@ esp_err_t ICM42688P_read_data(uint8_t start_reg, uint8_t *data, size_t length) {
     spiTransaction.rxlength = 0; // 0 defaults to the length parameter
     spiTransaction.flags = 0; // SPI_TRANS_CS_KEEP_ACTIVE;
     spiTransaction.tx_buffer = &cmd;
-    spiTransaction.rx_buffer = data;
+    spiTransaction.rx_buffer = pData;
 
     esp_err_t ret = spi_device_transmit(spiDeviceHandle, &spiTransaction);
     if (ret != ESP_OK) {
@@ -193,7 +193,7 @@ void ICM42688P_read_movement(measurement_t *measurement) {
 }
 
 // ToDo: This would be the more elegant solution bit it emits weird values.
-// void ICM42688P_read_movement_better(measurement_t *measurement) {
+// void ICM42688P_read_movement(measurement_t *measurement) {
 //     uint8_t data[6];
 //     ICM42688P_read_data(ICM42688P_ACCEL_XOUT_H, data, 6);
 

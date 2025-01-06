@@ -177,19 +177,18 @@ uint16_t ICM42688P_read_steps() {
     return ((data[0] << 8) | data[1]);
 }
 
-// ToDo: This does suddenly not work anymore! WTF?
 void ICM42688P_read_movement(measurement_t *measurement) {
     uint8_t upper_x = ICM42688P_read_single_reg(ICM42688P_ACCEL_XOUT_H);
     uint8_t lower_x = ICM42688P_read_single_reg(ICM42688P_ACCEL_XOUT_L);
-    measurement->movement.x = ((upper_x << 8) | lower_x);
+    measurement->movement.x = (int16_t)((upper_x << 8) | lower_x);
 
     uint8_t upper_y = ICM42688P_read_single_reg(ICM42688P_ACCEL_YOUT_H);
     uint8_t lower_y = ICM42688P_read_single_reg(ICM42688P_ACCEL_YOUT_L);
-    measurement->movement.y = ((upper_y << 8) | lower_y);
+    measurement->movement.y = (int16_t)((upper_y << 8) | lower_y);
 
     uint8_t upper_z = ICM42688P_read_single_reg(ICM42688P_ACCEL_ZOUT_H);
     uint8_t lower_z = ICM42688P_read_single_reg(ICM42688P_ACCEL_ZOUT_L);
-    measurement->movement.z = ((upper_z << 8) | lower_z);
+    measurement->movement.z = (int16_t)((upper_z << 8) | lower_z);
 }
 
 // ToDo: This would be the more elegant solution bit it emits weird values.
@@ -197,9 +196,9 @@ void ICM42688P_read_movement(measurement_t *measurement) {
 //     uint8_t data[6];
 //     ICM42688P_read_data(ICM42688P_ACCEL_XOUT_H, data, 6);
 
-//     uint16_t x = ((data[0] << 8) | data[1]);
-//     uint16_t y = ((data[2] << 8) | data[3]);
-//     uint16_t z = ((data[4] << 8) | data[5]);
+//     uint16_t x = (int16_t)((data[0] << 8) | data[1]);
+//     uint16_t y = (int16_t)((data[2] << 8) | data[3]);
+//     uint16_t z = (int16_t)((data[4] << 8) | data[5]);
 
 //     measurement->movement.x = x;
 //     measurement->movement.y = y;

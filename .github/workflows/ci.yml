@@ -1,0 +1,26 @@
+---
+# Docker Build & Push GitHub-Actions
+# https://github.com/docker/build-push-action/tree/v5/
+# https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#workflow_run
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+    - name: esp-idf build
+      uses: espressif/esp-idf-ci-action@v1
+      with:
+        target: esp32c3
+        path: '.'

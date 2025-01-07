@@ -1,0 +1,37 @@
+---
+# Super Linter GitHub-Actions
+# https://github.com/super-linter/super-linter/tree/v5/
+# https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#workflow_run
+name: Lint Code Base
+
+on:
+    push:
+      branches: [ "main" ]
+    pull_request:
+      branches: [ "main" ]
+
+jobs:
+  lint:
+    name: 📝 Lint Code Base
+    runs-on: ubuntu-latest
+    # Grant status permission for MULTI_STATUS
+    permissions:
+        contents: read
+        packages: read
+        statuses: write
+
+    steps:
+      - name: ⬇️ Checkout Repo
+        uses: actions/checkout@v4
+        with:
+            # Full git history is needed to get a proper
+            # list of changed files within `super-linter`
+            fetch-depth: 0
+
+      - name: 📝 Lint Code Base
+        uses: super-linter/super-linter@v5
+        env:
+            # only validate changes
+            VALIDATE_ALL_CODEBASE: false
+            # don't know what this excatly does but it is needed
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

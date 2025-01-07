@@ -6,7 +6,7 @@
 #define I2C_MASTER_SCL_IO CONFIG_I2C_MASTER_SCL_IO
 #define I2C_MASTER_BITRATE CONFIG_I2C_MASTER_BITRATE
 
-#define ICM42688P_I2C_ADDRESS               0x80   // ToDo: Correct?
+#define ICM42688P_I2C_ADDRESS               0x80   // This is most likely wrong
 
 i2c_port_t i2c_port = I2C_NUM_0;
 

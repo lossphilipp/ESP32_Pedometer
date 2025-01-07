@@ -24,8 +24,8 @@
 #define OUTPUT_TYPE_COMPARISON 2
 
 #define STEP_VECTOR_MAGNITUDE_THRESHOLD 1000
-#define STEP_SAMPLE_ERROR_TRESHOLD 5      // Minimum number of consecutive measurements indicating a direction change
-#define STEP_CALCULATION_BUFFER_SIZE 25*2 // 25 Hz * 2 seconds
+#define STEP_SAMPLE_ERROR_TRESHOLD      25/2 // ca 500 ms
+#define STEP_CALCULATION_BUFFER_SIZE    25*3 // 25 Hz * 3 seconds
 
 uint16_t calculated_steps = 0;
 uint8_t output_type = OUTPUT_TYPE_COMPARISON;
@@ -248,76 +248,69 @@ void configure_buttons() {
 
 // ######################### Program #########################
 
-bool is_vector_above_threshold(movement_t movement) {
-    float_t magnitude = sqrt(movement.x * movement.x + movement.y * movement.y + movement.z * movement.z);
-    return magnitude > STEP_VECTOR_MAGNITUDE_THRESHOLD;
+movement_t add_movements(movement_t movement1, movement_t movement2) {
+    movement_t result = {
+        movement1.x + movement2.x,
+        movement1.y + movement2.y,
+        movement1.z + movement2.z
+    };
+
+    return result;
+}
+
+float_t calculate_magnitude(movement_t movement) {
+    return sqrt(movement.x * movement.x + movement.y * movement.y + movement.z * movement.z);
 }
 
 int32_t calculate_dot_product(movement_t movement1, movement_t movement2) {
     return movement1.x * movement2.x + movement1.y * movement2.y + movement1.z * movement2.z;
 }
 
-bool is_vector_direction_same(movement_t movement1, movement_t movement2) {
+bool is_movement_direction_same(movement_t movement1, movement_t movement2) {
     return calculate_dot_product(movement1, movement2) > 0.5; // 1 = same direction, 0 = orthogonal, -1 = opposite direction
 }
 
-bool is_vector_direction_opposite(movement_t movement1, movement_t movement2) {
+bool is_movement_direction_opposite(movement_t movement1, movement_t movement2) {
     return calculate_dot_product(movement1, movement2) < -0.5; // 1 = same direction, 0 = orthogonal, -1 = opposite direction
 }
 
-// ToDo: Review logic and refactor (method way to big & not working!)
-bool detect_step(movement_t current_movement) {
-    if (!is_vector_above_threshold(current_movement)) {
+bool detect_step() {
+    static bool is_initialized = false;
+    static movement_t previous_avg_movement = {0, 0, 0};
+
+    movement_t avg_movement = {0, 0, 0};
+    movement_t buffered_movement;
+    for (int i = 0; i < STEP_SAMPLE_ERROR_TRESHOLD; i++) {
+        ringbuffer_get(calculation_buffer, &buffered_movement, -1 * i);
+        avg_movement = add_movements(avg_movement, buffered_movement);
+    }
+    avg_movement.x /= STEP_SAMPLE_ERROR_TRESHOLD;
+    avg_movement.y /= STEP_SAMPLE_ERROR_TRESHOLD;
+    avg_movement.z /= STEP_SAMPLE_ERROR_TRESHOLD;
+
+    ESP_LOGV("CALCULATION", "Previous average movement:\nX: %d\nY: %d\nZ: %d", previous_avg_movement.x, previous_avg_movement.y, previous_avg_movement.z);
+    ESP_LOGV("CALCULATION", "Current average movement:\nX: %d\nY: %d\nZ: %d", avg_movement.x, avg_movement.y, avg_movement.z);
+
+    if (!is_initialized) {
+        previous_avg_movement = avg_movement;
+        is_initialized = true;
         return false;
     }
 
-    // Check the last measurements for the same direction
-    int8_t same_direction_count = 0;
-    for (int8_t i = 0; i < STEP_SAMPLE_ERROR_TRESHOLD; i++) {
-        movement_t previous_movement;
-        if (!ringbuffer_get(calculation_buffer, &previous_movement, -1 - i)) {
-            break;
-        }
+    bool direction_changed = is_movement_direction_opposite(previous_avg_movement, avg_movement);
+    previous_avg_movement = avg_movement;
 
-        if (is_vector_direction_same(current_movement, previous_movement)) {
-            same_direction_count++;
-        } else {
-            same_direction_count = 0;
-            break;
-        }
-    }
-
-    if (same_direction_count < STEP_SAMPLE_ERROR_TRESHOLD) {
-        return false;
-    }
-
-    // Check the previous measurements for the opposite direction
-    int8_t opposite_direction_count = 0;
-    for (int8_t i = STEP_SAMPLE_ERROR_TRESHOLD; i < 2 * STEP_SAMPLE_ERROR_TRESHOLD; i++) {
-        movement_t previous_movement;
-        if (!ringbuffer_get(calculation_buffer, &previous_movement, -1 - i)) {
-            break;
-        }
-
-        if (is_vector_direction_opposite(current_movement, previous_movement)) {
-            opposite_direction_count++;
-        } else {
-            opposite_direction_count = 0;
-            break;
-        }
-    }
-
-    return opposite_direction_count >= STEP_SAMPLE_ERROR_TRESHOLD;
+    return direction_changed;
 }
 
 void calc_steps_from_movement() {
     movement_t current_movement = current_measurement.movement;
-
-    if (detect_step(current_movement)) {
-        calculated_steps++;
-    }
-
     ringbuffer_add(calculation_buffer, &current_movement);
+
+    if (detect_step()) {
+        calculated_steps++;
+        ESP_LOGD("CALCULATION", "Step detected. Incrementing to %d", calculated_steps);
+    }
 }
 
 void read_accelerometer_data() {

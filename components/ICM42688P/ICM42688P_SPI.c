@@ -211,7 +211,7 @@ measurement_t ICM42688P_read_all() {
     measurement.steps = ICM42688P_read_steps();
     ICM42688P_read_movement(&measurement);
 
-    ESP_LOGD(ICM42688P_TAG, "Read the following data:\nSteps: %d\nX: %d\nY: %d\nZ: %d", measurement.steps, measurement.movement.x, measurement.movement.y, measurement.movement.z); 
+    ESP_LOGV(ICM42688P_TAG, "Read the following data:\nSteps: %d\nX: %d\nY: %d\nZ: %d", measurement.steps, measurement.movement.x, measurement.movement.y, measurement.movement.z); 
 
     return measurement;
 }

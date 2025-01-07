@@ -10,17 +10,30 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Grant status permission for MULTI_STATUS
+permissions:
+  contents: read
+  packages: read
+  statuses: write
+  actions: write
+
 jobs:
   build:
+    name: 🛠️ Build artifact
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repo
+    - name: ⬇️ Checkout repo
       uses: actions/checkout@v4
       with:
         submodules: 'recursive'
-    - name: esp-idf build
+    - name: 🛠️ ESP-IDF build
       uses: espressif/esp-idf-ci-action@v1
       with:
         target: esp32c3
         path: '.'
+    - name: ⬆️ Publish build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: build

@@ -10,30 +10,30 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Grant status permission for MULTI_STATUS
+permissions:
+  contents: read
+  packages: read
+  statuses: write
+
 jobs:
   lint:
     name: 📝 Lint Code Base
     runs-on: ubuntu-latest
-    # Grant status permission for MULTI_STATUS
-    permissions:
-        contents: read
-        packages: read
-        statuses: write
-
+    
     steps:
       - name: ⬇️ Checkout Repo
         uses: actions/checkout@v4
         with:
-            # Full git history is needed to get a proper
-            # list of changed files within `super-linter`
-            fetch-depth: 0
-
+          # Full git history is needed to get a proper
+          # list of changed files within `super-linter`
+          fetch-depth: 0
       - name: 📝 Lint Code Base
         uses: super-linter/super-linter@v7
         env:
-            # only validate changes
-            VALIDATE_ALL_CODEBASE: false
-            # branch is called main, not master
-            DEFAULT_BRANCH: main
-            # To report GitHub Actions status checks
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # only validate changes
+          VALIDATE_ALL_CODEBASE: false
+          # branch is called main, not master
+          DEFAULT_BRANCH: main
+          # To report GitHub Actions status checks
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,14 +1,14 @@
 ---
 # Super Linter GitHub-Actions
-# https://github.com/super-linter/super-linter/tree/v5/
+# https://github.com/super-linter/super-linter/tree/v7/
 # https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#workflow_run
 name: Lint Code Base
 
 on:
-    push:
-      branches: [ "main" ]
-    pull_request:
-      branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   lint:
@@ -29,9 +29,11 @@ jobs:
             fetch-depth: 0
 
       - name: 📝 Lint Code Base
-        uses: super-linter/super-linter@v5
+        uses: super-linter/super-linter@v7
         env:
             # only validate changes
             VALIDATE_ALL_CODEBASE: false
-            # don't know what this excatly does but it is needed
+            # branch is called main, not master
+            DEFAULT_BRANCH: main
+            # To report GitHub Actions status checks
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

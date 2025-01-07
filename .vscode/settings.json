@@ -1,7 +1,8 @@
 {
     "files.associations": {
         "led_strip.h": "c",
-        "icm42688p.h": "c"
+        "icm42688p.h": "c",
+        "ringbuffer.h": "c"
     },
     "idf.flashType": "UART",
     "idf.portWin": "COM3"

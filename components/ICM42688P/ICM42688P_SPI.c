@@ -41,36 +41,6 @@ void initSPI(spi_host_device_t spiHost) {
     spi_bus_add_device(spiHost, &spiDeviceConfig, &spiDeviceHandle);
 }
 
-bool read_who_am_i(){
-    spi_transaction_t spiTransaction = { 0 };
-    uint8_t cmd[16];
-    cmd[0] = 0x75 | 0x80; // WHO AM I, Read
-    cmd[1] = 0xFF; // second byte, for response transmit
-    uint8_t rcv[16];
-    rcv[0] = 0xCC;
-    rcv[1] = 0xCC;
-    spiTransaction.length = 8 * 2; // 8 bit send, 8 bit receive, only the register
-    spiTransaction.rxlength = 0;
-    spiTransaction.flags = 0; // SPI_TRANS_CS_KEEP_ACTIVE;
-    spiTransaction.tx_buffer = &cmd;
-    spiTransaction.rx_buffer = &rcv;
-
-    esp_err_t ret = spi_device_transmit(spiDeviceHandle, &spiTransaction);
-
-    if (ret == ESP_OK) {
-        ESP_LOGD(ICM42688P_TAG, "got data from ICM42688: %X %X", rcv[0], rcv[1]);
-    }
-
-    if (rcv[1] == 0x47) { // see datasheet
-        ESP_LOGD(ICM42688P_TAG, "gyro responds, ID ok");
-        return true;
-    } else {
-        ESP_LOGD(ICM42688P_TAG, "gyro responds, but wrong ID! ID: %X", rcv[1]);
-    }
-
-    return false;
-}
-
 uint8_t ICM42688P_read_single_reg(uint8_t reg) {
     spi_transaction_t spiTransaction = { 0 };
 
@@ -97,6 +67,18 @@ uint8_t ICM42688P_read_single_reg(uint8_t reg) {
 
     ESP_LOGV(ICM42688P_TAG, "got data from ICM42688: %X %X", rcv[0], rcv[1]);
     return rcv[1];
+}
+
+bool read_who_am_i(){
+    uint8_t ret = ICM42688P_read_single_reg(0x75);
+
+    if (ret == 0x47) { // see datasheet
+        ESP_LOGD(ICM42688P_TAG, "gyro responds, ID ok");
+        return true;
+    } else {
+        ESP_LOGD(ICM42688P_TAG, "gyro responds, but wrong ID! ID: %X", ret);
+        return false;
+    }
 }
 
 esp_err_t ICM42688P_read_data(uint8_t start_reg, uint8_t* pData, size_t length) {

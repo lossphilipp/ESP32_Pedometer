@@ -23,8 +23,8 @@
 #define OUTPUT_TYPE_CALCULATED 1
 #define OUTPUT_TYPE_COMPARISON 2
 
-#define STEP_VECTOR_MAGNITUDE_THRESHOLD 1000
-#define STEP_SAMPLE_ERROR_TRESHOLD      25/2 // ca 500 ms
+#define STEP_VECTOR_MAGNITUDE_THRESHOLD 2500 // Already 2000 when laying still 
+#define AVERAGE_MOVEMENT_TRESHOLD       25/2 // ca 500 ms
 #define STEP_CALCULATION_BUFFER_SIZE    25*3 // 25 Hz * 3 seconds
 
 uint16_t calculated_steps = 0;
@@ -137,8 +137,6 @@ void draw_read_steps() {
 }
 
 void draw_data() {
-    //led_strip_clear(led_strip);
-
     if (output_type == OUTPUT_TYPE_READ) {
         draw_read_steps();
     } else if (output_type == OUTPUT_TYPE_CALCULATED) {
@@ -170,6 +168,16 @@ void draw_separator_stopped() {
     draw_separator(color);
 }
 
+void redraw_current_state() {
+    led_strip_clear(led_strip);
+    draw_data();
+    if (measurement_running) {
+        draw_separator_running();
+    } else {
+        draw_separator_stopped();
+    }
+}
+
 void draw_blinker(uint8_t number_of_blinks, color_t color) {
     for (uint8_t i = 0; i < number_of_blinks; i++) {
         for (uint8_t j = 0; j < 25; j++) {
@@ -193,6 +201,7 @@ void draw_blinker(uint8_t number_of_blinks, color_t color) {
 
 void switch_mode() {
     output_type = (output_type + 1) % 3;
+    redraw_current_state();
     ESP_LOGI("CONFIGURATION", "Switching mode to %d", output_type);
 }
 
@@ -274,19 +283,25 @@ bool is_movement_direction_opposite(movement_t movement1, movement_t movement2) 
     return calculate_dot_product(movement1, movement2) < -0.5; // 1 = same direction, 0 = orthogonal, -1 = opposite direction
 }
 
+movement_t calculate_average_movement(){
+    movement_t avg_movement = {0, 0, 0};
+    movement_t buffered_movement;
+    for (uint8_t i = 0; i < AVERAGE_MOVEMENT_TRESHOLD; i++) {
+        ringbuffer_get(calculation_buffer, &buffered_movement, -1 * i);
+        avg_movement = add_movements(avg_movement, buffered_movement);
+    }
+    avg_movement.x /= AVERAGE_MOVEMENT_TRESHOLD;
+    avg_movement.y /= AVERAGE_MOVEMENT_TRESHOLD;
+    avg_movement.z /= AVERAGE_MOVEMENT_TRESHOLD;
+
+    return avg_movement;
+}
+
 bool detect_step() {
     static bool is_initialized = false;
     static movement_t previous_avg_movement = {0, 0, 0};
 
-    movement_t avg_movement = {0, 0, 0};
-    movement_t buffered_movement;
-    for (int i = 0; i < STEP_SAMPLE_ERROR_TRESHOLD; i++) {
-        ringbuffer_get(calculation_buffer, &buffered_movement, -1 * i);
-        avg_movement = add_movements(avg_movement, buffered_movement);
-    }
-    avg_movement.x /= STEP_SAMPLE_ERROR_TRESHOLD;
-    avg_movement.y /= STEP_SAMPLE_ERROR_TRESHOLD;
-    avg_movement.z /= STEP_SAMPLE_ERROR_TRESHOLD;
+    movement_t avg_movement = calculate_average_movement();
 
     ESP_LOGV("CALCULATION", "Previous average movement:\nX: %d\nY: %d\nZ: %d", previous_avg_movement.x, previous_avg_movement.y, previous_avg_movement.z);
     ESP_LOGV("CALCULATION", "Current average movement:\nX: %d\nY: %d\nZ: %d", avg_movement.x, avg_movement.y, avg_movement.z);
@@ -297,25 +312,23 @@ bool detect_step() {
         return false;
     }
 
+    float_t magnitude = calculate_magnitude(avg_movement);
+    if (magnitude < STEP_VECTOR_MAGNITUDE_THRESHOLD) {
+        ESP_LOGV("CALCULATION", "Movement magnitude below threshold: %f", magnitude);
+        return false;
+    }
+
     bool direction_changed = is_movement_direction_opposite(previous_avg_movement, avg_movement);
     previous_avg_movement = avg_movement;
 
     return direction_changed;
 }
 
-void calc_steps_from_movement() {
-    movement_t current_movement = current_measurement.movement;
-    ringbuffer_add(calculation_buffer, &current_movement);
-
-    if (detect_step()) {
-        calculated_steps++;
-        ESP_LOGD("CALCULATION", "Step detected. Incrementing to %d", calculated_steps);
-    }
-}
-
 void read_accelerometer_data() {
     current_measurement = ICM42688P_read_all();
-    calc_steps_from_movement();
+    movement_t current_movement = current_measurement.movement;
+
+    ringbuffer_add(calculation_buffer, &current_movement);
 }
 
 void reset_accelerometer_steps() {
@@ -390,9 +403,13 @@ void app_main(void) {
         if (measurement_running)
         {
             read_accelerometer_data();
-            run_counter++;
+            if (detect_step()) {
+                ++calculated_steps;
+                ESP_LOGI("CALCULATION", "Step detected. Incrementing to %d", calculated_steps);
+            }
 
             // Update the drawing every 200ms to save resources
+            run_counter++;
             if (run_counter % 5 == 0) {
                 draw_data();
             }

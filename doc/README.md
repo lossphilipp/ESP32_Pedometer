@@ -17,7 +17,7 @@ Per default the data is read via SPI, but there is also a (non-functional) imple
 * Reads accelerometer data from ICM-42688-P
 * Detects steps based on accelerometer data
 * Read internal step count of ICM-42688-P
-* Displays step count on an LED strip (red = manually calculated | green = red from pedometer)
+* Displays step count on an LED strip (red = manually calculated, green = red from pedometer)
 * Button controls for switching modes and starting/stopping measurements
 
 ## Hardware Requirements
@@ -26,17 +26,15 @@ Per default the data is read via SPI, but there is also a (non-functional) imple
 * LED strip (compatible with ESP32)
 * Two buttons for control
 
-
 ## Software Requirements
 * ESP-IDF (Espressif IoT Development Framework)
 * CMake
 * Ninja build system
 
-
 ## Installation
 1. Clone the repository:
 ``` bash
-git clone https://github.com/yourusername/esp32-pedometer.git
+git clone https://github.com/lossphilipp/ESP32_Pedometer.git
 cd esp32-pedometer
 ```
 
@@ -66,7 +64,6 @@ The project can be configured using the `menuconfig` tool provided by ESP-IDF. K
 * SPI/I2C settings for the accelerometer
 * LED strip backend (RMT or SPI)
 
-
 ## Usage
 1. Power on the ESP32.
 2. The system will initialize and start in the default mode.
@@ -77,7 +74,6 @@ The project can be configured using the `menuconfig` tool provided by ESP-IDF. K
 4. Use the right button to start/stop measurements.
 5. The LED strip will display the step count in bindary based on the selected mode.
 
-
 ## Code Overview
 * main.c: The main application code.
     * Initializes the system and configures peripherals.
@@ -85,10 +81,22 @@ The project can be configured using the `menuconfig` tool provided by ESP-IDF. K
     * Displays the step count on the LED strip.
     * Handles button inputs to switch modes and start/stop measurements.
 
-ToDo: Finish here
-
 ### Key Functions
-
+* `configure_led()`: Configures the LED strip.
+* `configure_buttons()`: Configures the buttons.
+* `switch_mode()`: Switches between different output modes.
+* `toggle_measurement()`: Starts or stops the measurement.
+* `handle_button_press()`: Handles button press events.
+* `calculate_binary()`: Converts a number to a binary array.
+* `draw_binary()`: Draws a binary array on the LED strip.
+* `draw_data()`: Draws the step count data on the LED strip.
+* `calculate_average_movement()`: Calculates the average movement of the last few measurements
+* `detect_step()`: Detects a step based on movement data.
+* `read_accelerometer_data()`: Reads data from the accelerometer.
+* `reset_steps()`: Resets the step count.
+* `check_reset_initiated()`: Initiates a reset if both buttons are pressed for longer than a second.
+* `configure_system()`: Configures the entire system.
+* `app_main()`: The main application entry point.
 
 ## License
 This project is licensed under the MIT License. See the LICENSE file for details.

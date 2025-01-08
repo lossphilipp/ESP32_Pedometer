@@ -25,7 +25,7 @@
 
 #define STEP_VECTOR_MAGNITUDE_THRESHOLD 2500 // Already 2000 when laying still 
 #define AVERAGE_MOVEMENT_TRESHOLD       25/2 // ca 500 ms
-#define STEP_CALCULATION_BUFFER_SIZE    25*3 // 25 Hz * 3 seconds
+#define STEP_CALCULATION_BUFFER_SIZE    25*2 // 25 Hz * 3 seconds
 
 uint16_t calculated_steps = 0;
 uint8_t output_type = OUTPUT_TYPE_COMPARISON;
@@ -333,6 +333,7 @@ void read_accelerometer_data() {
 
 void reset_accelerometer_steps() {
     ICM42688P_reset();
+    current_measurement.steps = 0;
 }
 
 void reset_steps() {
